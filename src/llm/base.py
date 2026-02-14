@@ -8,7 +8,7 @@ class BaseLLM(ABC):
     LLM 客户端的抽象基类 (Abstract Base Class)。
     它是所有具体模型实现（OpenAI, DeepSeek等）必须遵守的契约。
     """
-
+    
     @abstractmethod
     async def generate(self, messages: List[Message], config: GenerationConfig) -> LLMResponse:
         """

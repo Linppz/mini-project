@@ -5,6 +5,7 @@ from src.core.config import settings
 from src.core.resilience import api_retry  # <--- 改这里：导入你写的重试装饰器
 from src.llm.base import BaseLLM
 from src.llm.schemas import Message, GenerationConfig, LLMResponse, TokenUsage, Role
+from src.llm.tokentracker import TokenTracker
 
 class OpenAIClient(BaseLLM):
     def __init__(self):
@@ -15,6 +16,9 @@ class OpenAIClient(BaseLLM):
             api_key=settings.OPENAI_API_KEY.get_secret_value(),
             timeout=settings.LLM_TIMEOUT
         )
+        self.model = settings.LLM_DEFAULT_MODEL if settings.LLM_PROVIDER == "openai" else "gpt-4o-mini"
+
+        
 
     def _format_messages(self, messages: List[Message]) -> List[dict]:
         formatted = []
@@ -27,10 +31,8 @@ class OpenAIClient(BaseLLM):
 
     @api_retry  # <--- 改这里：使用你的装饰器
     async def generate(self, messages: List[Message], config: GenerationConfig) -> LLMResponse:
-        model = settings.LLM_DEFAULT_MODEL if settings.LLM_PROVIDER == "openai" else "gpt-4o-mini"
-        
         response = await self.client.chat.completions.create(
-            model=model,
+            model= self.model,
             messages=self._format_messages(messages),
             temperature=config.temperature,
             max_tokens=config.max_token,
@@ -55,10 +57,9 @@ class OpenAIClient(BaseLLM):
 
     # @api_retry  # <--- 改这里
     async def stream(self, messages: List[Message], config: GenerationConfig) -> AsyncIterator[str]:
-        model = settings.LLM_DEFAULT_MODEL if settings.LLM_PROVIDER == "openai" else "gpt-4o-mini"
-        
+        self.tracker = TokenTracker(self.model)
         stream = await self.client.chat.completions.create(
-            model=model,
+            model=self.model,
             messages=self._format_messages(messages),
             temperature=config.temperature,
             max_tokens=config.max_token,
@@ -70,3 +71,4 @@ class OpenAIClient(BaseLLM):
             content = chunk.choices[0].delta.content
             if content:
                 yield content
+                self.tracker.add(content)

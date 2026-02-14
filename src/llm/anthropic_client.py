@@ -5,6 +5,7 @@ from src.core.config import settings
 from src.core.resilience import api_retry  # <--- 改这里
 from src.llm.base import BaseLLM
 from src.llm.schemas import Message, GenerationConfig, LLMResponse, TokenUsage, Role
+from src.llm.tokentracker import TokenTracker
 
 class AnthropicClient(BaseLLM):
     def __init__(self):
@@ -15,6 +16,9 @@ class AnthropicClient(BaseLLM):
             api_key=settings.ANTHROPIC_API_KEY.get_secret_value(),
             timeout=settings.LLM_TIMEOUT
         )
+        self.system_prompt, self.formatted_messages = self._prepare_inputs(messages)
+        # 这里的 model 建议也从 settings 读取，这里简化处理
+        self.model = "claude-3-5-sonnet-20240620" 
 
     def _prepare_inputs(self, messages: List[Message]) -> Tuple[str, List[dict]]:
         system_prompt = ""
@@ -29,14 +33,12 @@ class AnthropicClient(BaseLLM):
 
     @api_retry  # <--- 改这里
     async def generate(self, messages: List[Message], config: GenerationConfig) -> LLMResponse:
-        system_prompt, formatted_messages = self._prepare_inputs(messages)
-        # 这里的 model 建议也从 settings 读取，这里简化处理
-        model = "claude-3-5-sonnet-20240620" 
+        
         
         response = await self.client.messages.create(
-            model=model,
-            system=system_prompt,
-            messages=formatted_messages,
+            model=self.model,
+            system=self.system_prompt,
+            messages=self.formatted_messages,
             temperature=config.temperature,
             max_tokens=config.max_token or 1024,
             top_p=config.top_p,
@@ -61,13 +63,12 @@ class AnthropicClient(BaseLLM):
 
     @api_retry  # <--- 改这里
     async def stream(self, messages: List[Message], config: GenerationConfig) -> AsyncIterator[str]:
-        system_prompt, formatted_messages = self._prepare_inputs(messages)
-        model = "claude-3-5-sonnet-20240620"
+        self.tracker = TokenTracker(self.model)
 
         stream = await self.client.messages.create(
-            model=model,
-            system=system_prompt,
-            messages=formatted_messages,
+            model=self.model,
+            system=self.system_prompt,
+            messages=self.formatted_messages,
             temperature=config.temperature,
             max_tokens=config.max_token or 1024,
             top_p=config.top_p,
@@ -77,3 +78,4 @@ class AnthropicClient(BaseLLM):
         async for event in stream:
             if event.type == "content_block_delta" and event.delta.type == "text_delta":
                 yield event.delta.text
+                self.tracker.add(event.delta.text)

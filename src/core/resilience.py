@@ -1,5 +1,8 @@
 # src/core/resilience.py
 import logging
+from aiolimiter import AsyncLimiter
+from src.core.config import settings
+import asyncio
 from tenacity import (
     retry,
     stop_after_attempt,
@@ -50,3 +53,7 @@ api_retry = retry(
     retry=retry_if_exception(is_retryable_error),
     before_sleep=before_sleep_log(logger, logging.WARNING)
 )
+
+
+limiter = AsyncLimiter(max_rate = settings.LLM_RPM, time_period = 60)
+concurrency_limiter = asyncio.Semaphore(settings.LLM_MAX_CONCURRENT)
